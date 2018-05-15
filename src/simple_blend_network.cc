@@ -27,23 +27,12 @@
 #include "gl_wrappers.h"
 #include "OfflineDataLoader.h"
 
-const std::string INPUT_LAYER = "concat";
-const std::string OUTPUT_LAYER = "model/add_4";
-
-// Creates a new session with an associated graph.
-tensorflow::Status CreateSessionWithGraph(
-    const tensorflow::GraphDef& graph_def,
-    std::unique_ptr<tensorflow::Session>* session) {
-  session->reset(tensorflow::NewSession(tensorflow::SessionOptions()));
-  return (*session)->Create(graph_def);
-}
-
-// Since the original network didn't convert back to uint8 RGB images, we'll
-// create the operations to manually do this; we'll then add an op to download
-// to the GL frame buffer.
-void AddImageConversionOps(tensorflow::GraphDef* graph_def,
-                           fribr::Framebuffer* output_framebuffer,
-                           GLFWwindow* window) {
+void AddGraphInputsAndOutputOps(
+    tensorflow::GraphDef* graph_def,
+    const std::vector<fribr::Framebuffer>& input_framebuffers,
+    const std::vector<std::string>& input_graph_node_names,
+    const fribr::Framebuffer& output_framebuffer,
+    const std::string& output_node_name, const GLFWwindow* window) {
   // TODO (True): potential bug in Protobuf and/or the way this project uses the
   // Protobuf library? Have to force the release of fields before setting them
   // (they otherwise point to the same memory; this doesn't happen using bazel,
@@ -152,27 +141,82 @@ void AddImageConversionOps(tensorflow::GraphDef* graph_def,
         reinterpret_cast<const int64_t>(window));
   }
 */
-  // Copy to frame buffer
+
+/*
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("texture_inputs");
+    node->set_op("TextureInputs");
+    (*node->mutable_attr())["GLFWwindow_ptr"].set_i(
+        reinterpret_cast<const int64_t>(window));
+
+    for (size_t i = 0; i < input_framebuffers.size(); ++i) {
+      const auto input_shape = input_framebuffers[i].get_resolution();
+
+      (*node->mutable_attr())["texture_id"].add_i(
+          reinterpret_cast<const int64_t>(
+              input_framebuffers[i]->get_textures()[0]->get_id()));
+      auto shape = (*node->mutable_attr())["output_shapes"].add_shape();
+      shape->add_dim()->set_size(1);
+      shape->add_dim()->set_size(input_shape[0]);
+      shape->add_dim()->set_size(input_shape[1]);
+      shape->add_dim()->set_size(3);  // RGB
+    }
+  }
+
+  // Create a constant value of 0
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("const_0");
+    node->set_op("Const");
+    (*node->mutable_attr())["dtype"].set_type(tensorflow::DT_INT32);
+    auto value = (*node->mutable_attr())["value"].mutable_tensor();
+    value->set_dtype(tensorflow::DT_INT32);
+    value->set_version_number(0);
+    value->mutable_tensor_shape()->add_dim()->set_size(1);
+    value->add_int_val(0);
+  }
+
+  // NOTE (True): the concat could potentially be folded into the input op
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("concat");
+    node->set_op("Concat");
+    node->add_input("const_0");
+    node->add_input("texture_inputs");
+    (*node->mutable_attr())["N"].set_i(input_framebuffers.size());
+    (*node->mutable_attr())["T"].set_type(tensorflow::DT_FLOAT);
+  }
+*/
+
   {
     auto node = graph_def->add_node();
     node->release_name();
     node->release_op();
     node->set_name("output");
-    node->set_op("CopyToFramebuffer");
-    node->add_input(OUTPUT_LAYER);
-    (*node->mutable_attr())["framebuffer_ptr"].set_i(
-        reinterpret_cast<const int64_t>(output_framebuffer));
+    node->set_op("CopyToTexture");
+    node->add_input(output_node_name);
     (*node->mutable_attr())["GLFWwindow_ptr"].set_i(
         reinterpret_cast<const int64_t>(window));
+    (*node->mutable_attr())["texture_id"].set_i(
+        output_framebuffer.get_textures()[0]->get_id());
   }
 }
 
-
 // Reads a model graph definition from disk.
-tensorflow::Status LoadGraph(const std::string& graph_file_name,
-                             std::unique_ptr<tensorflow::Session>* session,
-                             fribr::Framebuffer* output_framebuffer,
-                             GLFWwindow* window) {
+tensorflow::Status LoadGraph(
+    std::unique_ptr<tensorflow::Session>* session,
+    const std::string& graph_file_name,
+    const std::vector<fribr::Framebuffer>& input_framebuffers,
+    const std::vector<std::string>& input_graph_node_names,
+    const fribr::Framebuffer& output_framebuffer,
+    const std::string& output_node_name, const GLFWwindow* window) {
   tensorflow::GraphDef graph_def;
   tensorflow::Status load_graph_status =
       ReadBinaryProto(tensorflow::Env::Default(), graph_file_name, &graph_def);
@@ -181,9 +225,12 @@ tensorflow::Status LoadGraph(const std::string& graph_file_name,
                                         graph_file_name, "'");
   }
 
-  AddImageConversionOps(&graph_def, output_framebuffer, window);
-  
-  return CreateSessionWithGraph(graph_def, session);
+  AddGraphInputsAndOutputOps(&graph_def, input_framebuffers,
+                             input_graph_node_names, output_framebuffer,
+                             output_node_name, window);
+
+  session->reset(tensorflow::NewSession(tensorflow::SessionOptions()));
+  return (*session)->Create(graph_def);
 }
 
 void gl_error_callback(int error, const char* description) {
@@ -226,7 +273,7 @@ int main(int argc, char** argv) {
       "/playpen/jtprice/research/ibr_2018/data/";
   const std::string data_file = data_folder + "test.txt";
   const std::string output_folder = data_folder + "output/";
-  const std::string graph_path = data_folder + "model/model-40192.pb";
+  const std::string graph_path = data_folder + "model/model.pb";
   const std::string log_folder = data_folder + "logs/";
   const size_t width = 1296;
   const size_t height = 832;
@@ -253,31 +300,57 @@ int main(int argc, char** argv) {
     return -1;
   }
 
+  //
+  // Set up input and output frame buffers.
+  //
+
+//  fribr::Texture::Descriptor color_descriptor(GL_CLAMP_TO_EDGE, GL_NEAREST, 0,
+//                                              fribr::TextureFormat::RGBA8);
+//  std::vector<fribr::Framebuffer> input_framebuffers;
+//  for (size_t i = 0; i < 5; ++i) {
+//    input_framebuffers.emplace_back(
+//        {width, height},
+//        std::vector<fribr::Texture::Descriptor>(1, color_descriptor));
+//  }
+  std::vector<fribr::Framebuffer> input_framebuffers;
+
+  const std::vector<std::string> input_graph_node_names = {
+      "imageloader/convert_image_1", "imageloader/convert_image_2",
+      "imageloader/convert_image_3", "imageloader/convert_image_4",
+      "imageloader/convert_image_5"};
+
+  const std::string output_node_name = "model/add_4";
+
   fribr::Texture::Descriptor color_descriptor(GL_CLAMP_TO_EDGE, GL_NEAREST, 0,
                                               fribr::TextureFormat::RGBA8);
   fribr::Framebuffer output_framebuffer(
       {width, height},
       std::vector<fribr::Texture::Descriptor>(1, color_descriptor));
 
-  // First we load and initialize the model from the provided protobuf file.
+  //
+  // Load and initialize model from Protobuf file.
+  //
+
   std::unique_ptr<tensorflow::Session> session;
   {
-    const auto load_graph_status =
-        LoadGraph(graph_path, &session, &output_framebuffer, window);
+    const auto load_graph_status = LoadGraph(
+        &session, graph_path, input_framebuffers, input_graph_node_names,
+        output_framebuffer, output_node_name, window);
     if (!load_graph_status.ok()) {
       LOG(ERROR) << load_graph_status;
       return -1;
     }
   }
 
-  // Create the output folder, if it doesn't exist.
-  tensorflow::Env::Default()->RecursivelyCreateDir(output_folder);
-
   // Create the data loader.
   OfflineDataLoader data_loader(data_folder, data_file);
 
+  //
   // Run the model.
   size_t output_idx = 0;
+
+  // Create the output folder where images are saved, if it doesn't exist.
+  tensorflow::Env::Default()->RecursivelyCreateDir(output_folder);
 
   std::vector<std::pair<std::string, tensorflow::Tensor>> inputs;
   while (true) {

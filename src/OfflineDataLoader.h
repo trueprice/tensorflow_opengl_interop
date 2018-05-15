@@ -9,10 +9,6 @@
 
 class OfflineDataLoader {
  public:
-  static const size_t NUM_MOSAIC_IMAGES = 4;
-
-  static const std::vector<std::string> MOSAIC_NAMES;
-
   OfflineDataLoader(const std::string& data_folder,
                     const std::string& filenames_file)
       : data_folder_(data_folder),
@@ -38,89 +34,48 @@ class OfflineDataLoader {
 
     std::string filename;
 
-    output_names.push_back("ref_image");
-    inputs.emplace_back(
-        output_names.back() + "_filename",
-        tensorflow::Tensor(tensorflow::DT_STRING, tensorflow::TensorShape()));
+//    output_names.push_back("ref_image");
+//    inputs.emplace_back(
+//        output_names.back() + "_filename",
+//        tensorflow::Tensor(tensorflow::DT_STRING, tensorflow::TensorShape()));
     fin_ >> filename;
-    inputs.back().second.scalar<std::string>()() =
-        tensorflow::io::JoinPath(data_folder_, filename);
+//    inputs.back().second.scalar<std::string>()() =
+//        tensorflow::io::JoinPath(data_folder_, filename);
 
-    output_names.push_back("global_color");
-    inputs.emplace_back(
-        output_names.back() + "_filename",
-        tensorflow::Tensor(tensorflow::DT_STRING, tensorflow::TensorShape()));
-    fin_ >> filename;
-    inputs.back().second.scalar<std::string>()() =
-        tensorflow::io::JoinPath(data_folder_, filename);
+    for (size_t i = 0; i < 5; ++i) {
+      const std::string name = "image_" + std::to_string(i);
 
-    output_names.push_back("global_disparity");
-    inputs.emplace_back(
-        output_names.back() + "_filename",
-        tensorflow::Tensor(tensorflow::DT_STRING, tensorflow::TensorShape()));
-    fin_ >> filename;
-    inputs.back().second.scalar<std::string>()() =
-        tensorflow::io::JoinPath(data_folder_, filename);
+      output_names.push_back(name);
+      inputs.emplace_back(
+          name + "_filename",
+          tensorflow::Tensor(tensorflow::DT_STRING, tensorflow::TensorShape()));
+      fin_ >> filename;
+      inputs.back().second.scalar<std::string>()() =
+          tensorflow::io::JoinPath(data_folder_, filename);
+    }
 
-    fin_ >> filename;  // global normals
-    fin_ >> filename;  // global output_dir
-
-    for (size_t i = 0; i < NUM_MOSAIC_IMAGES; ++i) {
-      const std::string suffix = "_" + std::to_string(i);
-
-      for (const auto& name : MOSAIC_NAMES) {
-        output_names.push_back(name + suffix);
-        inputs.emplace_back(output_names.back() + "_filename",
-                            tensorflow::Tensor(tensorflow::DT_STRING,
-                                               tensorflow::TensorShape()));
-        fin_ >> filename;
-        inputs.back().second.scalar<std::string>()() =
-            tensorflow::io::JoinPath(data_folder_, filename);
-      }
+    // read extra filenames
+    for (size_t i = 0; i < 10; ++i) {
+      fin_ >> filename;
     }
 
     std::vector<tensorflow::Tensor> out_tensors;
     session_->Run(inputs, output_names, {}, &out_tensors);
 
-    // TODO (True): this is all very hard-coded right now.
-    return {{"inputloader/convert_image_1", out_tensors[1]},
-            {"inputloader/convert_image_2", out_tensors[2]},
-            {"inputloader/convert_image_5", out_tensors[3]},
-            {"inputloader/convert_image_6", out_tensors[4]},
-            {"inputloader/convert_image_7", out_tensors[5]},
-            {"inputloader/convert_image_8", out_tensors[6]},
-            {"inputloader/convert_image_9", out_tensors[7]},
-            {"inputloader/convert_image_10", out_tensors[8]},
-            {"inputloader/convert_image_11", out_tensors[9]},
-            {"inputloader/convert_image_12", out_tensors[10]},
-            {"inputloader/convert_image_13", out_tensors[11]},
-            {"inputloader/convert_image_14", out_tensors[12]},
-            {"inputloader/convert_image_15", out_tensors[13]},
-            {"inputloader/convert_image_16", out_tensors[14]},
-            {"inputloader/convert_image_17", out_tensors[15]},
-            {"inputloader/convert_image_18", out_tensors[16]},
-            {"inputloader/convert_image_19", out_tensors[17]},
-            {"inputloader/convert_image_20", out_tensors[18]},
-            {"inputloader/convert_image_21", out_tensors[19]},
-            {"inputloader/convert_image_22", out_tensors[10]},
-            {"inputloader/convert_image_23", out_tensors[21]},
-            {"inputloader/convert_image_24", out_tensors[22]}};
+    return {{"inputloader/convert_image_1", out_tensors[0]},
+            {"inputloader/convert_image_2", out_tensors[1]},
+            {"inputloader/convert_image_3", out_tensors[2]},
+            {"inputloader/convert_image_4", out_tensors[3]},
+            {"inputloader/convert_image_5", out_tensors[4]}};
   }
 
  private:
   void Initialize_() {
     tensorflow::Scope scope = tensorflow::Scope::NewRootScope();
 
-    AddImageInputOp_("JPG", "ref_image", scope);
-    AddImageInputOp_("JPG", "global_color", scope);
-    AddImageInputOp_("PNG", "global_disparity", scope, 1);
-    for (size_t i = 0; i < NUM_MOSAIC_IMAGES; ++i) {
+    for (size_t i = 0; i < 5; ++i) {
       const std::string suffix = "_" + std::to_string(i);
-      AddImageInputOp_("JPG", "colors" + suffix, scope);
-      AddImageInputOp_("PNG", "disparities" + suffix, scope, 1);
-      AddImageInputOp_("PNG", "input_dir" + suffix, scope);
-      AddImageInputOp_("PNG", "normals" + suffix, scope);
-      AddImageInputOp_("PNG", "output_dir" + suffix, scope);
+      AddImageInputOp_("JPG", "image" + suffix, scope);
     }
 
     tensorflow::GraphDef graph;
@@ -171,8 +126,5 @@ class OfflineDataLoader {
 
   std::unique_ptr<tensorflow::Session> session_;
 };
-
-const std::vector<std::string> OfflineDataLoader::MOSAIC_NAMES = {
-    "colors", "disparities", "input_dir", "normals", "output_dir"};
 
 #endif  // OFFLINE_DATA_LOADER_H_
