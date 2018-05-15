@@ -1,5 +1,0 @@
-set(Eigen_URL https://mirror.bazel.build/bitbucket.org/eigen/eigen/get/6913f0cf7d06.tar.gz,https://bitbucket.org/eigen/eigen/get/6913f0cf7d06.tar.gz,)
-set(Eigen_ARCHIVE_HASH 6913f0cf7d06)
-set(Eigen_HASH SHA256=791b836cacd03e20bae5bdd25f1c4a5505a0a9975ba94a61eb4e2631fbd1d53a)
-set(Eigen_DIR eigen3)
-set(Eigen_INSTALL_DIR /home/jtprice/research/image_based_rendering/code/local)

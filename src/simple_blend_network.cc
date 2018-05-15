@@ -8,14 +8,23 @@
 #include <utility>
 #include <vector>
 
+#include <opencv2/opencv.hpp>
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
+#include <cuda_gl_interop.h>
+
 #include "tensorflow/cc/ops/standard_ops.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/platform/file_system.h"
 #include "tensorflow/core/platform/init_main.h"
 #include "tensorflow/core/public/session.h"
 #include "tensorflow/core/util/command_line_flags.h"
 #include "tensorflow/core/util/events_writer.h"
 
+#include "custom_ops.h"
+#include "gl_wrappers.h"
 #include "OfflineDataLoader.h"
 
 const std::string INPUT_LAYER = "concat";
@@ -29,11 +38,141 @@ tensorflow::Status CreateSessionWithGraph(
   return (*session)->Create(graph_def);
 }
 
+// Since the original network didn't convert back to uint8 RGB images, we'll
+// create the operations to manually do this; we'll then add an op to download
+// to the GL frame buffer.
+void AddImageConversionOps(tensorflow::GraphDef* graph_def,
+                           fribr::Framebuffer* output_framebuffer,
+                           GLFWwindow* window) {
+  // TODO (True): potential bug in Protobuf and/or the way this project uses the
+  // Protobuf library? Have to force the release of fields before setting them
+  // (they otherwise point to the same memory; this doesn't happen using bazel,
+  // though...).
+/*
+  // Squeeze dim 0
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/squeeze");
+    node->set_op("Squeeze");
+    node->add_input(OUTPUT_LAYER);
+    (*node->mutable_attr())["T"].set_type(tensorflow::DT_FLOAT);
+    (*node->mutable_attr())["squeeze_dims"].mutable_list()->add_i(0);
+  }
+
+  // Create a constant value of 0
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/const_0");
+    node->set_op("Const");
+    (*node->mutable_attr())["dtype"].set_type(tensorflow::DT_FLOAT);
+    auto value = (*node->mutable_attr())["value"].mutable_tensor();
+    value->set_dtype(tensorflow::DT_FLOAT);
+    value->set_version_number(0);
+    value->mutable_tensor_shape()->add_dim()->set_size(1);
+    value->add_float_val(0.f);
+  }
+
+  // Create a constant value of 255
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/const_255");
+    node->set_op("Const");
+    (*node->mutable_attr())["dtype"].set_type(tensorflow::DT_FLOAT);
+    auto value = (*node->mutable_attr())["value"].mutable_tensor();
+    value->set_dtype(tensorflow::DT_FLOAT);
+    value->set_version_number(0);
+    value->mutable_tensor_shape()->add_dim()->set_size(1);
+    value->add_float_val(255.f);
+  }
+
+  // Multiply by 255
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/mul");
+    node->set_op("Mul");
+    node->add_input("output/squeeze");
+    node->add_input("output/const_255");
+    (*node->mutable_attr())["T"].set_type(tensorflow::DT_FLOAT);
+  }
+
+  // Clip to [0, 255]
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/clip_0");
+    node->set_op("Maximum");
+    node->add_input("output/mul");
+    node->add_input("output/const_0");
+    (*node->mutable_attr())["T"].set_type(tensorflow::DT_FLOAT);
+  }
+
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/clip_255");
+    node->set_op("Minimum");
+    node->add_input("output/clip_0");
+    node->add_input("output/const_255");
+    (*node->mutable_attr())["T"].set_type(tensorflow::DT_FLOAT);
+  }
+
+  // Cast to uint8
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output/cast");
+    node->set_op("Cast");
+    node->add_input("output/clip_255");
+    (*node->mutable_attr())["SrcT"].set_type(tensorflow::DT_FLOAT);
+    (*node->mutable_attr())["DstT"].set_type(tensorflow::DT_UINT8);
+  }
+
+  // Copy to frame buffer
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output");
+    node->set_op("CopyToFramebuffer");
+    node->add_input("output/cast");
+    (*node->mutable_attr())["framebuffer_ptr"].set_i(
+        reinterpret_cast<const int64_t>(output_framebuffer));
+    (*node->mutable_attr())["GLFWwindow_ptr"].set_i(
+        reinterpret_cast<const int64_t>(window));
+  }
+*/
+  // Copy to frame buffer
+  {
+    auto node = graph_def->add_node();
+    node->release_name();
+    node->release_op();
+    node->set_name("output");
+    node->set_op("CopyToFramebuffer");
+    node->add_input(OUTPUT_LAYER);
+    (*node->mutable_attr())["framebuffer_ptr"].set_i(
+        reinterpret_cast<const int64_t>(output_framebuffer));
+    (*node->mutable_attr())["GLFWwindow_ptr"].set_i(
+        reinterpret_cast<const int64_t>(window));
+  }
+}
+
 
 // Reads a model graph definition from disk.
 tensorflow::Status LoadGraph(const std::string& graph_file_name,
                              std::unique_ptr<tensorflow::Session>* session,
-                             tensorflow::EventsWriter* logger) {
+                             fribr::Framebuffer* output_framebuffer,
+                             GLFWwindow* window) {
   tensorflow::GraphDef graph_def;
   tensorflow::Status load_graph_status =
       ReadBinaryProto(tensorflow::Env::Default(), graph_file_name, &graph_def);
@@ -42,60 +181,55 @@ tensorflow::Status LoadGraph(const std::string& graph_file_name,
                                         graph_file_name, "'");
   }
 
-  auto graph_def_str = new std::string;
-  graph_def.SerializeToString(graph_def_str);
-  tensorflow::Event event;
-  event.set_allocated_graph_def(graph_def_str);
-  logger->WriteEvent(event);
-
+  AddImageConversionOps(&graph_def, output_framebuffer, window);
+  
   return CreateSessionWithGraph(graph_def, session);
 }
 
-// Creates a separate graph/session for saving images.
-tensorflow::Status CreateSaveImageGraph(
-    std::unique_ptr<tensorflow::Session>* session) {
-  tensorflow::Scope scope = tensorflow::Scope::NewRootScope();
+void gl_error_callback(int error, const char* description) {
+  LOG(ERROR) << "GL Error " << error << " " << description;
+}
 
-  auto input_image = tensorflow::ops::Placeholder(scope.WithOpName("image"),
-                                                  tensorflow::DT_FLOAT);
-  auto input_filename = tensorflow::ops::Placeholder(
-      scope.WithOpName("filename"), tensorflow::DT_STRING);
-
-  auto squeeze = tensorflow::ops::Squeeze(scope, input_image,
-                                          tensorflow::ops::Squeeze::Axis({0}));
-  auto image_255 = tensorflow::ops::Multiply(scope, squeeze, 255.f);
-  auto image_clip = tensorflow::ops::ClipByValue(scope, image_255, 0.f, 255.f);
-  auto image_uint8 =
-      tensorflow::ops::Cast(scope, image_clip, tensorflow::DT_UINT8);
-  auto image_png = tensorflow::ops::EncodePng(scope, image_uint8);
-
-  auto writer = tensorflow::ops::WriteFile(scope.WithOpName("save"),
-                                           input_filename, image_png);
-
-  tensorflow::GraphDef graph_def;
-  const auto graph_def_status = scope.ToGraphDef(&graph_def);
-  if (!graph_def_status.ok()) {
-    return graph_def_status;
+bool InitializeGL(size_t width, size_t height, GLFWwindow** window) {
+  glfwSetErrorCallback(gl_error_callback);
+  if (!glfwInit()) {
+    LOG(ERROR) << "Could not initialize glfw." << std::endl;
+    return false;
   }
 
-  return CreateSessionWithGraph(graph_def, session);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_SAMPLES, 4);
+  *window = glfwCreateWindow(width, height, "IBR", nullptr, nullptr);
+  glfwMakeContextCurrent(*window);
+  glfwSwapInterval(0);
+
+  glewExperimental = GL_TRUE;
+  GLenum glew_error = glewInit();
+
+  if (GLEW_OK != glew_error) {
+    LOG(ERROR) << "GLEW init failed: " << glewGetErrorString(glew_error);
+    return false;
+  }
+
+  glEnable(GL_DEPTH_TEST);
+  glDepthFunc(GL_LESS);
+  glEnable(GL_CULL_FACE);
+  glCullFace(GL_BACK);
+  glFrontFace(GL_CCW);
 }
 
 int main(int argc, char** argv) {
+  cudaGLSetGLDevice(0);
+
   // TODO (True): create command-line args
   const std::string data_folder =
-      "/playpen/jtprice/research/image_based_rendering/code/"
-      "simple_blend_network";
-  const std::string data_file =
-      "/playpen/jtprice/research/image_based_rendering/code/"
-      "simple_blend_network/test.txt";
-  const std::string output_folder =
-      "/playpen/jtprice/research/image_based_rendering/output";
-  const std::string graph_path =
-      "/playpen/jtprice/research/image_based_rendering/code/"
-      "simple_blend_network/model/model-40192.pb";
-  const std::string log_folder =
-      "/playpen/jtprice/research/image_based_rendering/logs";
+      "/playpen/jtprice/research/ibr_2018/data/";
+  const std::string data_file = data_folder + "test.txt";
+  const std::string output_folder = data_folder + "output/";
+  const std::string graph_path = data_folder + "model/model-40192.pb";
+  const std::string log_folder = data_folder + "logs/";
+  const size_t width = 1296;
+  const size_t height = 832;
 
   const std::vector<tensorflow::Flag> flag_list;
 
@@ -112,26 +246,24 @@ int main(int argc, char** argv) {
     return -1;
   }
 
-  // Logging for debug purposes.
-  tensorflow::Env::Default()->RecursivelyCreateDir(log_folder);
-  tensorflow::EventsWriter logger(
-      tensorflow::io::JoinPath(log_folder, "events"));
+  // set the device to use for the CUDA/GL interop
+  GLFWwindow* window;
+
+  if (!InitializeGL(width, height, &window)) {
+    return -1;
+  }
+
+  fribr::Texture::Descriptor color_descriptor(GL_CLAMP_TO_EDGE, GL_NEAREST, 0,
+                                              fribr::TextureFormat::RGBA8);
+  fribr::Framebuffer output_framebuffer(
+      {width, height},
+      std::vector<fribr::Texture::Descriptor>(1, color_descriptor));
 
   // First we load and initialize the model from the provided protobuf file.
   std::unique_ptr<tensorflow::Session> session;
   {
-    const auto load_graph_status = LoadGraph(graph_path, &session, &logger);
-    if (!load_graph_status.ok()) {
-      LOG(ERROR) << load_graph_status;
-      return -1;
-    }
-  }
-
-  // Create a session for saving images.
-  std::unique_ptr<tensorflow::Session> save_session;
-  tensorflow::Tensor filename(tensorflow::DT_STRING, tensorflow::TensorShape());
-  {
-    const auto load_graph_status = CreateSaveImageGraph(&save_session);
+    const auto load_graph_status =
+        LoadGraph(graph_path, &session, &output_framebuffer, window);
     if (!load_graph_status.ok()) {
       LOG(ERROR) << load_graph_status;
       return -1;
@@ -154,11 +286,9 @@ int main(int argc, char** argv) {
       break;
     }
 
-    std::vector<tensorflow::Tensor> outputs;
     {
       auto start = std::chrono::high_resolution_clock::now();
-      const auto run_status =
-          session->Run(inputs, {OUTPUT_LAYER}, {}, &outputs);
+      const auto run_status = session->Run(inputs, {}, {"output"}, {});
       if (!run_status.ok()) {
         LOG(ERROR) << run_status;
         return -1;
@@ -168,46 +298,18 @@ int main(int argc, char** argv) {
       LOG(INFO) << "Network ran in " << duration.count() << " ms";
     }
 
-    /*
-    std::vector<tensorflow::Tensor> outputs;
-    {
-      tensorflow::RunOptions run_options;
-      tensorflow::RunMetadata run_metadata;
-      run_options.set_trace_level(tensorflow::RunOptions::FULL_TRACE);
-      const auto run_status = session->Run(run_options, inputs, {OUTPUT_LAYER},
-                                           {}, &outputs, &run_metadata);
-      if (!run_status.ok()) {
-        LOG(ERROR) << run_status;
-        return -1;
-      }
-      auto tagged_metadata = new tensorflow::TaggedRunMetadata;
-      tagged_metadata->set_tag(std::to_string(output_idx));
-      std::string run_metadata_str;
-      run_metadata.SerializeToString(&run_metadata_str);
-      tagged_metadata->set_run_metadata(run_metadata_str);
-      tensorflow::Event event;
-      event.set_allocated_tagged_run_metadata(tagged_metadata);
-      event.set_wall_time(
-          std::chrono::duration<double>(
-              std::chrono::high_resolution_clock::now().time_since_epoch())
-              .count());
-      logger.WriteEvent(event);
-    }
-    */
-
+    // Test saving
+    glfwMakeContextCurrent(window);
     std::ostringstream filename_ss;
     filename_ss << std::setfill('0') << std::setw(5) << output_idx << ".png";
-    filename.scalar<std::string>()() =
+    const std::string filename =
         tensorflow::io::JoinPath(output_folder, filename_ss.str());
-    {
-      const auto run_status =
-          save_session->Run({{"image", outputs[0]}, {"filename", filename}}, {},
-                            {"save"}, nullptr);
-      if (!run_status.ok()) {
-        LOG(ERROR) << run_status;
-        return -1;
-      }
-    }
+
+    cv::Mat image =
+        output_framebuffer.read_texture(0, fribr::ReadbackMode::ReadBGR);
+    cv::flip(image, image, 0);
+    cv::imwrite(filename, image);
+    glfwMakeContextCurrent(0);
 
     ++output_idx;
   }
