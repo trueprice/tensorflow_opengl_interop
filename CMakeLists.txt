@@ -44,12 +44,9 @@ set(PROJECT_INCLUDE_DIRS
 include_directories(${PROJECT_INCLUDE_DIRS})
 
 file(GLOB CUSTOM_OP_FILES
-  #src/custom_ops/*.cc
-  #src/custom_ops/*.cu
-  #src/custom_ops/*.h
-  src/custom_ops/CopyToTextureOp.cc
-  src/custom_ops/CopyToTextureOp.cu
-  src/custom_ops/CopyToTextureOp.h
+  src/custom_ops/*.cc
+  src/custom_ops/*.cu
+  src/custom_ops/*.h
 )
 
 cuda_add_library(custom_ops_lib ${CUSTOM_OP_FILES})

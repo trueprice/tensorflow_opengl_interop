@@ -1,7 +1,7 @@
 #include "tensorflow/core/framework/op.h"
 
 #include "custom_ops/CopyToTextureOp.h"
-#include "custom_ops/TextureInputsOp.h"
+#include "custom_ops/TextureInputOp.h"
 
 REGISTER_OP("CopyToTexture")
     .Attr("GLFWwindow_ptr: int")
@@ -11,13 +11,11 @@ REGISTER_OP("CopyToTexture")
 REGISTER_KERNEL_BUILDER(Name("CopyToTexture").Device(tensorflow::DEVICE_GPU),
                         CopyToTextureOp);
 
-/*
-REGISTER_OP("TextureInputs")
+REGISTER_OP("TextureInput")
     .Attr("GLFWwindow_ptr: int")
-    .Attr("texture_ids: list(int)")
-    .Attr("output_shapes: list(shape)")
-    .Output("out_tensors: list(float)");
+    .Attr("texture_id: int")
+    .Attr("shape: shape")
+    .Output("out_tensor: float");
 
-REGISTER_KERNEL_BUILDER(Name("TextureInputs").Device(tensorflow::DEVICE_GPU),
-                        TextureInputs);
-*/
+REGISTER_KERNEL_BUILDER(Name("TextureInput").Device(tensorflow::DEVICE_GPU),
+                        TextureInputOp);

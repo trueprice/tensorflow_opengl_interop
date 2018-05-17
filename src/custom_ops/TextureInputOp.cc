@@ -1,4 +1,4 @@
-#include "CopyToTextureOp.h"
+#include "TextureInputOp.h"
 
 #include <cuda_gl_interop.h>
 
@@ -17,8 +17,7 @@ inline void gpuAssert(cudaError_t code, const char* file, int line,
 
 //------------------------------------------------------------------------------
 
-CopyToTextureOp::CopyToTextureOp(
-    tensorflow::OpKernelConstruction* context)
+TextureInputOp::TextureInputOp(tensorflow::OpKernelConstruction* context)
     : tensorflow::OpKernel(context) {
   tensorflow::int64 value;
   context->GetAttr("GLFWwindow_ptr", &value);
@@ -27,24 +26,22 @@ CopyToTextureOp::CopyToTextureOp(
   context->GetAttr("texture_id",
                    reinterpret_cast<tensorflow::int32*>(&texture_id_));
 
+  context->GetAttr("shape", &shape_);
+
   glfwMakeContextCurrent(window_);
   cudaGraphicsGLRegisterImage(&cudaTexture_, texture_id_, GL_TEXTURE_2D,
-                              cudaGraphicsMapFlagsWriteDiscard);
+                              cudaGraphicsMapFlagsReadOnly);
   glfwMakeContextCurrent(0);
 }
 
-CopyToTextureOp::~CopyToTextureOp() {
+TextureInputOp::~TextureInputOp() {
   glfwMakeContextCurrent(window_);
   cudaGraphicsUnregisterResource(cudaTexture_);
   glfwMakeContextCurrent(0);
   CUDA_CHECK_ERROR
 }
 
-void CopyToTextureOp::Compute(tensorflow::OpKernelContext* context) {
-  const tensorflow::Tensor& input_tensor = context->input(0);
-  const size_t height = input_tensor.dim_size(1);
-  const size_t width = input_tensor.dim_size(2);
-
+void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
   //    const auto stream =
   //        static_cast<stream_executor::cuda::CUDAStream*>(
   //            context->op_device_context()->stream()->implementation())
@@ -63,12 +60,24 @@ void CopyToTextureOp::Compute(tensorflow::OpKernelContext* context) {
   res_desc.resType = cudaResourceTypeArray;
   res_desc.res.array.array = texture_array;
 
-  cudaSurfaceObject_t out_surface;
-  cudaCreateSurfaceObject(&out_surface, &res_desc);
+  cudaTextureDesc texDesc;
+  memset(&texDesc, 0, sizeof(texDesc));
+  texDesc.addressMode[0] = cudaAddressModeBorder;
+  texDesc.addressMode[1] = cudaAddressModeBorder;
+  texDesc.addressMode[2] = cudaAddressModeBorder;
+  texDesc.filterMode = cudaFilterModePoint;
+  texDesc.readMode = cudaReadModeNormalizedFloat;  // converts to [0., 1.]
 
-  CopyToTexture(width, height, input_tensor.flat<float>().data(), out_surface);
+  cudaTextureObject_t in_texture;
+  cudaCreateTextureObject(&in_texture, &res_desc, &texDesc, nullptr);
 
-  cudaDestroySurfaceObject(out_surface);
+  tensorflow::Tensor* output_tensor = nullptr;
+  context->allocate_output(0, shape_, &output_tensor);
+
+  CopyToTensor(shape_.dim_size(1), shape_.dim_size(0), in_texture,
+               output_tensor->flat<float>().data());
+
+  cudaDestroyTextureObject(in_texture);
 
   cudaGraphicsUnmapResources(1, &cudaTexture_);  //, stream);
 
