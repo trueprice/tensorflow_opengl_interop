@@ -54,7 +54,6 @@ void AddGraphInputsAndOutputOps(
 
           const auto input_shape = input_textures[i]->get_resolution();
           auto shape = (*node.mutable_attr())["shape"].mutable_shape();
-          //shape->add_dim()->set_size(1);  // testing; also in TextureInputOp
           shape->add_dim()->set_size(input_shape[1]);
           shape->add_dim()->set_size(input_shape[0]);
           shape->add_dim()->set_size(3);  // RGB
@@ -73,7 +72,6 @@ void AddGraphInputsAndOutputOps(
     node->release_op();
     node->set_name("output");
     node->set_op("CopyToTexture");
-    //node->add_input("input1");  // testing
     node->add_input(output_node_name);
     (*node->mutable_attr())["GLFWwindow_ptr"].set_i(
         reinterpret_cast<const int64_t>(window));
@@ -167,17 +165,8 @@ void UploadImageToTexture(const cv::Mat& image,
     }
   }
 
-  GLint create_texture;
-  glGetTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_RESIDENT, &create_texture);
-
-  // Create texture if it does not exist; otherwise, update it.
-  if (create_texture) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, copy.cols, copy.rows, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, copy.data);
-  } else { 
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, copy.cols, copy.rows, GL_RGBA,
-                    GL_UNSIGNED_BYTE, copy.data);
-  }
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, copy.cols, copy.rows, GL_BGRA,
+                  GL_UNSIGNED_BYTE, copy.data);
 
   glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
@@ -193,7 +182,7 @@ cv::Mat DownloadTexture(fribr::Texture* texture) {
   cv::Mat image(resolution.y(), resolution.x(), CV_8UC4);
 
   glBindTexture(GL_TEXTURE_2D, texture_id);
-  glGetTexImage(GL_TEXTURE_2D, 0, GL_BGRA, GL_UNSIGNED_BYTE, image.data);
+  glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data);
   glBindTexture(GL_TEXTURE_2D, 0);
 
   return image;
@@ -292,12 +281,14 @@ int main(int argc, char** argv) {
     // extra reference file
     fin >> filename;
 
+    glfwMakeContextCurrent(window);
     for (size_t i = 0; i < 5; ++i) {
       fin >> filename;
       UploadImageToTexture(
           cv::imread(tensorflow::io::JoinPath(data_folder, filename)),
           input_textures[i]);
     }
+    glfwMakeContextCurrent(0);
 
     // extra files
     for (size_t i = 0; i < 10; ++i) {
@@ -317,18 +308,14 @@ int main(int argc, char** argv) {
     }
 
     // Test saving
-    glfwMakeContextCurrent(window);
     std::ostringstream filename_ss;
     filename_ss << std::setfill('0') << std::setw(5) << output_idx << ".png";
     filename = tensorflow::io::JoinPath(output_folder, filename_ss.str());
 
-    // TODO (True): revert
-//    cv::Mat image =
-//        output_texture.read_texture(0, fribr::ReadbackMode::ReadBGR);
+    glfwMakeContextCurrent(window);
     cv::Mat image = DownloadTexture(&output_texture);
-//    cv::Mat image = DownloadTexture(input_textures[0].get());
-    cv::imwrite(filename, image);
     glfwMakeContextCurrent(0);
+    cv::imwrite(filename, image);
 
     ++output_idx;
   }
