@@ -87,8 +87,9 @@ tensorflow::Status LoadGraph(
     const std::string& graph_file_name,
     const std::vector<std::unique_ptr<fribr::Texture>>& input_textures,
     const std::vector<std::string>& input_graph_node_names,
-    const fribr::Texture& output_texture,
-    const std::string& output_node_name, const GLFWwindow* window) {
+    const fribr::Texture& output_texture, const std::string& output_node_name,
+    const GLFWwindow* window,
+    std::unique_ptr<tensorflow::EventsWriter>& logger) {
   tensorflow::GraphDef graph_def;
   tensorflow::Status load_graph_status =
       ReadBinaryProto(tensorflow::Env::Default(), graph_file_name, &graph_def);
@@ -100,6 +101,14 @@ tensorflow::Status LoadGraph(
   AddGraphInputsAndOutputOps(&graph_def, input_textures,
                              input_graph_node_names, output_texture,
                              output_node_name, window);
+
+  if (logger != nullptr) {
+    auto graph_def_str = new std::string;
+    graph_def.SerializeToString(graph_def_str);
+    tensorflow::Event event;
+    event.set_allocated_graph_def(graph_def_str);
+    logger->WriteEvent(event);
+  }
 
   session->reset(tensorflow::NewSession(tensorflow::SessionOptions()));
   return (*session)->Create(graph_def);
@@ -198,10 +207,12 @@ int main(int argc, char** argv) {
       "/playpen/jtprice/research/ibr_2018/data/";
   const std::string data_file = data_folder + "test.txt";
   const std::string output_folder = data_folder + "output/";
-  const std::string graph_path = data_folder + "model/model.pb";
-  const std::string log_folder = data_folder + "logs/";
+  const std::string graph_path = data_folder + "model/model_optimized.pb";
   const size_t width = 1296;
   const size_t height = 832;
+
+  const std::string log_folder = data_folder + "logs/";
+  const bool logging_enabled = true;
 
   const std::vector<tensorflow::Flag> flag_list;
 
@@ -233,7 +244,7 @@ int main(int argc, char** argv) {
   const std::vector<std::string> input_graph_node_names = {
       "input1", "input2", "input3", "input4", "input5"};
 
-  const std::string output_node_name = "model/add_4";
+  const std::string output_node_name = "model/add_3";
 
   const auto resolution = (Eigen::Vector2i() << width, height).finished();
 
@@ -247,6 +258,15 @@ int main(int argc, char** argv) {
 
   fribr::Texture output_texture(resolution, color_descriptor);
 
+  // set up logging
+  std::unique_ptr<tensorflow::EventsWriter> logger;
+
+  if (logging_enabled) {
+    tensorflow::Env::Default()->RecursivelyCreateDir(log_folder);
+    logger.reset(new tensorflow::EventsWriter(
+        tensorflow::io::JoinPath(log_folder, "events")));
+  }
+
   //
   // Load and initialize model from Protobuf file.
   //
@@ -255,7 +275,7 @@ int main(int argc, char** argv) {
   {
     const auto load_graph_status = LoadGraph(
         &session, graph_path, input_textures, input_graph_node_names,
-        output_texture, output_node_name, window);
+        output_texture, output_node_name, window, logger);
     if (!load_graph_status.ok()) {
       LOG(ERROR) << load_graph_status;
       return -1;
@@ -295,6 +315,7 @@ int main(int argc, char** argv) {
       fin >> filename;
     }
 
+    /*
     {
       auto start = std::chrono::high_resolution_clock::now();
       const auto run_status = session->Run({}, {}, {"output"}, {});
@@ -305,6 +326,39 @@ int main(int argc, char** argv) {
       const std::chrono::duration<double, std::milli> duration =
           std::chrono::high_resolution_clock::now() - start;
       LOG(INFO) << "Network ran in " << duration.count() << " ms";
+    }
+    */
+
+    std::vector<tensorflow::Tensor> outputs;
+    {
+      tensorflow::RunOptions run_options;
+      tensorflow::RunMetadata run_metadata;
+      run_options.set_trace_level(tensorflow::RunOptions::FULL_TRACE);
+      const auto run_status =
+          session->Run(run_options, {}, {}, {"output"}, {}, &run_metadata);
+
+      if (!run_status.ok()) {
+        LOG(ERROR) << run_status;
+        return -1;
+      }
+
+      LOG(INFO) << output_idx;
+      if (logging_enabled) {
+        auto tagged_metadata = new tensorflow::TaggedRunMetadata;
+        tagged_metadata->release_tag();
+        tagged_metadata->release_run_metadata();
+        tagged_metadata->set_tag(std::to_string(output_idx));
+        std::string run_metadata_str;
+        run_metadata.SerializeToString(&run_metadata_str);
+        tagged_metadata->set_run_metadata(run_metadata_str);
+        tensorflow::Event event;
+        event.set_allocated_tagged_run_metadata(tagged_metadata);
+        event.set_wall_time(
+            std::chrono::duration<double>(
+                std::chrono::high_resolution_clock::now().time_since_epoch())
+                .count());
+        logger->WriteEvent(event);
+      }
     }
 
     // Test saving

@@ -26,9 +26,18 @@ find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLFW3 REQUIRED)
 
-set(CUDA_SEPARABLE_COMPILATION ON)
+#set(CUDA_SEPARABLE_COMPILATION ON)
 set(CUDA_PROPAGATE_HOST_FLAGS OFF)
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}" -std=c++11 --expt-relaxed-constexpr)
+CUDA_SELECT_NVCC_ARCH_FLAGS(CUDA_ARCH_FLAGS Auto)
+set(CUDA_NVCC_FLAGS
+  "${CUDA_NVCC_FLAGS}"
+  -std=c++11
+  --expt-relaxed-constexpr
+  "-Wno-deprecated-gpu-targets"
+  ${CUDA_ARCH_FLAGS})
+
+message(STATUS "Enabling CUDA support (version: ${CUDA_VERSION_STRING},"
+               " archs: ${CUDA_ARCH_FLAGS_readable})")
 
 set(PROJECT_INCLUDE_DIRS
     src/
@@ -60,7 +69,8 @@ set(PROJECT_LIBRARIES
     ${OpenGL_glu_LIBRARIES}
     ${GLEW_LIBRARIES}
     ${GLFW3_LIBRARIES}
-    ${OpenCV_LIBRARIES})
+    opencv_core
+    opencv_highgui)
 
 file(GLOB SOURCE_FILES
   src/simple_blend_network.cc
