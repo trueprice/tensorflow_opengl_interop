@@ -2,6 +2,7 @@
 // https://github.com/tensorflow/tensorflow/blob/master/tensorflow/examples/label_image/main.cc
 // see also: https://www.tensorflow.org/versions/master/api_guides/cc/guide
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
@@ -18,6 +19,7 @@
 #include <cuda_gl_interop.h>
 
 #include "tensorflow/cc/ops/standard_ops.h"
+#include "tensorflow/core/framework/attr_value_util.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/io/path.h"
@@ -29,6 +31,52 @@
 
 #include "custom_ops.h"
 #include "gl_wrappers.h"
+
+//------------------------------------------------------------------------------
+
+// Check if a string starts with another string.
+inline bool StartsWith(const std::string& str, const std::string& prefix) {
+  return (str.size() >= prefix.size()) &&
+         !str.compare(0, prefix.size(), prefix);
+}
+
+// Check if a string ends with another string.
+inline bool EndsWith(const std::string& str, const std::string& suffix) {
+  return (str.size() >= suffix.size()) &&
+         !str.compare(str.size() - suffix.size(), suffix.size(), suffix);
+}
+
+//------------------------------------------------------------------------------
+// Graph transform operations taken from
+// tensorflow:tensorflow/tools/graph_transforms/transform_utils.h
+
+// Inserts a value into a NodeDef's map of attributes.
+// This is a bit different than AddNodeAttr in node_def_util.h because it
+// overwrites any existing attributes with the same key.
+template <class T>
+inline void SetNodeAttr(const std::string& key, const T& value,
+                        tensorflow::NodeDef* node) {
+  tensorflow::AttrValue attr_value;
+  tensorflow::SetAttrValue(value, &attr_value);
+  auto* attr_map = node->mutable_attr();
+  (*attr_map)[key] = attr_value;
+}
+
+template <class T>
+inline void SetNodeTensorAttr(const std::string& key,
+                              const tensorflow::TensorShape& shape,
+                              const std::vector<T>& values,
+                              tensorflow::NodeDef* node) {
+  const tensorflow::DataType dtype = tensorflow::DataTypeToEnum<T>::v();
+  CHECK_EQ(shape.num_elements(), values.size());
+  tensorflow::Tensor tensor(dtype, shape);
+  T* dest_data = tensor.flat<T>().data();
+  std::copy_n(values.data(), values.size(), dest_data);
+
+  tensorflow::TensorProto tensor_proto;
+  tensor.AsProtoTensorContent(&tensor_proto);
+  SetNodeAttr(key, tensor_proto, node);
+}
 
 //------------------------------------------------------------------------------
 
@@ -46,11 +94,11 @@ void AddGraphInputsAndOutputOps(
           node.set_op("TextureInput");
           node.clear_attr();
 
-          (*node.mutable_attr())["GLFWwindow_ptr"].set_i(
-              reinterpret_cast<const int64_t>(window));
+          SetNodeAttr("GLFWwindow_ptr",
+                      reinterpret_cast<tensorflow::int64>(window), &node);
 
-          (*node.mutable_attr())["texture_id"].set_i(
-              input_textures[i]->get_id());
+          SetNodeAttr<tensorflow::int64>("texture_id",
+                                         input_textures[i]->get_id(), &node);
 
           const auto input_shape = input_textures[i]->get_resolution();
           auto shape = (*node.mutable_attr())["shape"].mutable_shape();
@@ -58,6 +106,27 @@ void AddGraphInputsAndOutputOps(
           shape->add_dim()->set_size(input_shape[0]);
           shape->add_dim()->set_size(3);  // RGB
         }
+      }
+    }
+  }
+
+  // Replace ResizeBilinear ops with our custom op. In the protobuf, we expect
+  // that the tf.image.resize_bilinear op has been replace by a NHWC->NCHW
+  // transpose, followed by tf.tile(x, [1, 1, 2, 2], name="ResizeBilinear"),
+  // followed by a NCHW->NHWC transpose.
+  {
+    for (tensorflow::NodeDef& node : *graph_def->mutable_node()) {
+      // Note that ResizeBilinear also has extra size inputs that we'll
+      // ignore.
+      if (StartsWith(node.name(), "model/ResizeBilinear") &&
+          !EndsWith(node.name(), "multiples")) {
+        const auto pos = node.name().rfind('_');
+        const std::string suffix =
+            (pos != std::string::npos) ? node.name().substr(pos) : "";
+
+        node.set_op("CudaBilinearUpsample");
+        node.mutable_input()->RemoveLast();  // remove input from tf.tile()
+        node.clear_attr();
       }
     }
   }
@@ -73,9 +142,11 @@ void AddGraphInputsAndOutputOps(
     node->set_name("output");
     node->set_op("CopyToTexture");
     node->add_input(output_node_name);
-    (*node->mutable_attr())["GLFWwindow_ptr"].set_i(
-        reinterpret_cast<const int64_t>(window));
-    (*node->mutable_attr())["texture_id"].set_i(output_texture.get_id());
+
+    SetNodeAttr("GLFWwindow_ptr", reinterpret_cast<tensorflow::int64>(window),
+                node);
+
+    SetNodeAttr<tensorflow::int64>("texture_id", output_texture.get_id(), node);
   }
 }
 
@@ -207,7 +278,7 @@ int main(int argc, char** argv) {
       "/playpen/jtprice/research/ibr_2018/data/";
   const std::string data_file = data_folder + "test.txt";
   const std::string output_folder = data_folder + "output/";
-  const std::string graph_path = data_folder + "model/model_optimized.pb";
+  const std::string graph_path = data_folder + "model/model.pb";
   const size_t width = 1296;
   const size_t height = 832;
 
@@ -342,7 +413,6 @@ int main(int argc, char** argv) {
         return -1;
       }
 
-      LOG(INFO) << output_idx;
       if (logging_enabled) {
         auto tagged_metadata = new tensorflow::TaggedRunMetadata;
         tagged_metadata->release_tag();
