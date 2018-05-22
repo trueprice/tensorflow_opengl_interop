@@ -1,6 +1,6 @@
 This codebase demonstrates how to pass textures to/from TensorFlow networks, avoiding CPU<->GPU data transfers.
 It's a little hacky right now, in that some of the inputs and paths are hard-coded, but it should be fairly agnostic to the internal network structure.
-To run the, you'll need to set up a binary protobuf of the network and have appropriate image data.
+To run the code, you'll need to set up a binary protobuf of the network and have appropriate image data.
 
 1. Prerequisites (you may already have these fulfilled)
   * See: https://www.tensorflow.org/install/install_sources
