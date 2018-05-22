@@ -22,8 +22,8 @@ __global__ void TextureInputOp_CopyToTexture_kernel(
 void TextureInputOp::CopyToTensor(const size_t width, const size_t height,
                                   cudaTextureObject_t in_texture,
                                   float* out_tensor) {
-  const dim3 block_dim(32, 1);
-  const dim3 grid_dim(32, 32);
+  const dim3 block_dim(256, 1, 1);
+  const dim3 grid_dim((width + block_dim.x - 1) / block_dim.x, height, 1);
   // TODO (True): stream
   TextureInputOp_CopyToTexture_kernel
       <<<grid_dim, block_dim>>>(width, height, in_texture, out_tensor);

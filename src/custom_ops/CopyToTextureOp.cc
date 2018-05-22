@@ -17,8 +17,7 @@ inline void gpuAssert(cudaError_t code, const char* file, int line,
 
 //------------------------------------------------------------------------------
 
-CopyToTextureOp::CopyToTextureOp(
-    tensorflow::OpKernelConstruction* context)
+CopyToTextureOp::CopyToTextureOp(tensorflow::OpKernelConstruction* context)
     : tensorflow::OpKernel(context) {
   tensorflow::int64 value;
   context->GetAttr("GLFWwindow_ptr", &value);
@@ -51,7 +50,7 @@ void CopyToTextureOp::Compute(tensorflow::OpKernelContext* context) {
   //            ->cuda_stream();
   //    LOG(INFO) << "::" << stream;
 
-  glfwMakeContextCurrent(window_);
+  cudaDeviceSynchronize();
 
   cudaGraphicsMapResources(1, &cudaTexture_);  //, stream);
 

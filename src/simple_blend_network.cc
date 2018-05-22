@@ -110,6 +110,7 @@ void AddGraphInputsAndOutputOps(
     }
   }
 
+  /*
   // Replace ResizeBilinear ops with our custom op. In the protobuf, we expect
   // that the tf.image.resize_bilinear op has been replace by a NHWC->NCHW
   // transpose, followed by tf.tile(x, [1, 1, 2, 2], name="ResizeBilinear"),
@@ -130,6 +131,7 @@ void AddGraphInputsAndOutputOps(
       }
     }
   }
+  */
 
   // TODO (True): potential bug in Protobuf and/or the way this project uses the
   // Protobuf library? Have to force the release of fields before setting them
@@ -275,12 +277,14 @@ int main(int argc, char** argv) {
 
   // TODO (True): create command-line args
   const std::string data_folder =
-      "/playpen/jtprice/research/ibr_2018/data/";
+      "/playpen/jtprice/research/ibr_2018/data/network_05-22/";
   const std::string data_file = data_folder + "test.txt";
   const std::string output_folder = data_folder + "output/";
   const std::string graph_path = data_folder + "model/model.pb";
-  const size_t width = 1296;
-  const size_t height = 832;
+//  const size_t width = 1296;
+//  const size_t height = 832;
+  const size_t width = 1280;
+  const size_t height = 720;
 
   const std::string log_folder = data_folder + "logs/";
   const bool logging_enabled = true;
@@ -315,7 +319,7 @@ int main(int argc, char** argv) {
   const std::vector<std::string> input_graph_node_names = {
       "input1", "input2", "input3", "input4", "input5"};
 
-  const std::string output_node_name = "model/add_3";
+  const std::string output_node_name = "model/transpose_1";
 
   const auto resolution = (Eigen::Vector2i() << width, height).finished();
 
@@ -365,7 +369,6 @@ int main(int argc, char** argv) {
   // Create the output folder where images are saved, if it doesn't exist.
   tensorflow::Env::Default()->RecursivelyCreateDir(output_folder);
 
-
   while ((fin >> dummy >> dummy)) {
     std::string filename;
 
@@ -379,6 +382,7 @@ int main(int argc, char** argv) {
           cv::imread(tensorflow::io::JoinPath(data_folder, filename)),
           input_textures[i]);
     }
+    glFinish();
     glfwMakeContextCurrent(0);
 
     // extra files
@@ -386,7 +390,6 @@ int main(int argc, char** argv) {
       fin >> filename;
     }
 
-    /*
     {
       auto start = std::chrono::high_resolution_clock::now();
       const auto run_status = session->Run({}, {}, {"output"}, {});
@@ -398,8 +401,8 @@ int main(int argc, char** argv) {
           std::chrono::high_resolution_clock::now() - start;
       LOG(INFO) << "Network ran in " << duration.count() << " ms";
     }
-    */
 
+    /*
     std::vector<tensorflow::Tensor> outputs;
     {
       tensorflow::RunOptions run_options;
@@ -430,6 +433,7 @@ int main(int argc, char** argv) {
         logger->WriteEvent(event);
       }
     }
+    */
 
     // Test saving
     std::ostringstream filename_ss;

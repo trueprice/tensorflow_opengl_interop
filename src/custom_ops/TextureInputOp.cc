@@ -46,9 +46,13 @@ void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
   //        static_cast<stream_executor::cuda::CUDAStream*>(
   //            context->op_device_context()->stream()->implementation())
   //            ->cuda_stream();
-  //    LOG(INFO) << "::" << stream;
+  //    LOG(INFO) << "::" << stream << std::endl;
 
-  glfwMakeContextCurrent(window_);
+cudaDeviceSynchronize();
+
+  if (glfwGetCurrentContext() != window_) {
+    glfwMakeContextCurrent(window_);
+  }
 
   cudaGraphicsMapResources(1, &cudaTexture_);  //, stream);
 
@@ -80,6 +84,4 @@ void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
   cudaDestroyTextureObject(in_texture);
 
   cudaGraphicsUnmapResources(1, &cudaTexture_);  //, stream);
-
-  glfwMakeContextCurrent(0);
 }
