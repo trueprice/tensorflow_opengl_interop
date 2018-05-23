@@ -29,7 +29,7 @@ __global__ void CopyToTextureOp_CopyToTexture_kernel(const size_t width,
 void CopyToTextureOp::CopyToTexture(const size_t width, const size_t height,
                                     const float* in_tensor,
                                     cudaSurfaceObject_t out_texture) {
-  const dim3 block_dim(32, 1);
+  const dim3 block_dim(32, 32, 1);
   const dim3 grid_dim(32, 32);
   // TODO (True): stream
   CopyToTextureOp_CopyToTexture_kernel<<<grid_dim, block_dim>>>(

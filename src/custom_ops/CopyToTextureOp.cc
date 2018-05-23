@@ -51,6 +51,7 @@ void CopyToTextureOp::Compute(tensorflow::OpKernelContext* context) {
   //            ->cuda_stream();
   //    LOG(INFO) << "::" << stream;
 
+  cudaDeviceSynchronize();
   glfwMakeContextCurrent(window_);
 
   cudaGraphicsMapResources(1, &cudaTexture_);  //, stream);

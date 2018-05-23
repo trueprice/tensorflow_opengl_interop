@@ -86,6 +86,7 @@ void AddGraphInputsAndOutputOps(
     const std::vector<std::string>& input_graph_node_names,
     const fribr::Texture& output_texture, const std::string& output_node_name,
     const GLFWwindow* window) {
+  #if 1
   // Replace placeholder ops with TextureInput ops.
   {
     for (size_t i = 0; i < input_textures.size(); ++i) {
@@ -97,19 +98,28 @@ void AddGraphInputsAndOutputOps(
           SetNodeAttr("GLFWwindow_ptr",
                       reinterpret_cast<tensorflow::int64>(window), &node);
 
-          SetNodeAttr<tensorflow::int64>("texture_id",
-                                         input_textures[i]->get_id(), &node);
+	  for (int j = 0; j < 5; ++j)
+	  {
+	      std::stringstream name_stream;
+	      name_stream << "texture_id_" << j;
+	      SetNodeAttr<tensorflow::int64>(name_stream.str(),
+					     input_textures[j]->get_id(), &node);
+	  }
 
           const auto input_shape = input_textures[i]->get_resolution();
           auto shape = (*node.mutable_attr())["shape"].mutable_shape();
+          shape->add_dim()->set_size(1);
+	  shape->add_dim()->set_size(15);  // RGB
           shape->add_dim()->set_size(input_shape[1]);
           shape->add_dim()->set_size(input_shape[0]);
-          shape->add_dim()->set_size(3);  // RGB
         }
       }
+      break;
     }
   }
+  #endif
 
+  #if 0
   // Replace ResizeBilinear ops with our custom op. In the protobuf, we expect
   // that the tf.image.resize_bilinear op has been replace by a NHWC->NCHW
   // transpose, followed by tf.tile(x, [1, 1, 2, 2], name="ResizeBilinear"),
@@ -130,7 +140,9 @@ void AddGraphInputsAndOutputOps(
       }
     }
   }
+  #endif
 
+  #if 1
   // TODO (True): potential bug in Protobuf and/or the way this project uses the
   // Protobuf library? Have to force the release of fields before setting them
   // (they otherwise point to the same memory; this doesn't happen using bazel,
@@ -148,6 +160,7 @@ void AddGraphInputsAndOutputOps(
 
     SetNodeAttr<tensorflow::int64>("texture_id", output_texture.get_id(), node);
   }
+  #endif
 }
 
 //------------------------------------------------------------------------------
@@ -275,15 +288,15 @@ int main(int argc, char** argv) {
 
   // TODO (True): create command-line args
   const std::string data_folder =
-      "/playpen/jtprice/research/ibr_2018/data/";
+      "/home/phedman/Code/simple_blend/";
   const std::string data_file = data_folder + "test.txt";
   const std::string output_folder = data_folder + "output/";
   const std::string graph_path = data_folder + "model/model.pb";
-  const size_t width = 1296;
-  const size_t height = 832;
+  const size_t width = 1280;//1296;
+  const size_t height = 720;//832;
 
   const std::string log_folder = data_folder + "logs/";
-  const bool logging_enabled = true;
+  const bool logging_enabled = false;
 
   const std::vector<tensorflow::Flag> flag_list;
 
@@ -315,7 +328,8 @@ int main(int argc, char** argv) {
   const std::vector<std::string> input_graph_node_names = {
       "input1", "input2", "input3", "input4", "input5"};
 
-  const std::string output_node_name = "model/add_3";
+  const std::string output_node_name = "model/transpose";
+  //const std::string output_node_name = "model/Squeeze:0";
 
   const auto resolution = (Eigen::Vector2i() << width, height).finished();
 
@@ -379,6 +393,7 @@ int main(int argc, char** argv) {
           cv::imread(tensorflow::io::JoinPath(data_folder, filename)),
           input_textures[i]);
     }
+    glFinish();
     glfwMakeContextCurrent(0);
 
     // extra files
@@ -386,7 +401,6 @@ int main(int argc, char** argv) {
       fin >> filename;
     }
 
-    /*
     {
       auto start = std::chrono::high_resolution_clock::now();
       const auto run_status = session->Run({}, {}, {"output"}, {});
@@ -398,9 +412,9 @@ int main(int argc, char** argv) {
           std::chrono::high_resolution_clock::now() - start;
       LOG(INFO) << "Network ran in " << duration.count() << " ms";
     }
-    */
 
     std::vector<tensorflow::Tensor> outputs;
+    #if 0
     {
       tensorflow::RunOptions run_options;
       tensorflow::RunMetadata run_metadata;
@@ -430,6 +444,7 @@ int main(int argc, char** argv) {
         logger->WriteEvent(event);
       }
     }
+    #endif
 
     // Test saving
     std::ostringstream filename_ss;
