@@ -83,29 +83,31 @@ inline void SetNodeTensorAttr(const std::string& key,
 void AddGraphInputsAndOutputOps(
     tensorflow::GraphDef* graph_def,
     const std::vector<std::unique_ptr<fribr::Texture>>& input_textures,
-    const std::vector<std::string>& input_graph_node_names,
+    const std::string& input_graph_node_name,
     const fribr::Texture& output_texture, const std::string& output_node_name,
     const GLFWwindow* window) {
   // Replace placeholder ops with TextureInput ops.
   {
-    for (size_t i = 0; i < input_textures.size(); ++i) {
-      for (tensorflow::NodeDef& node : *graph_def->mutable_node()) {
-        if (node.name() == input_graph_node_names[i]) {
-          node.set_op("TextureInput");
-          node.clear_attr();
+    for (tensorflow::NodeDef& node : *graph_def->mutable_node()) {
+      if (node.name() == input_graph_node_name) {
+        node.set_op("TextureInput");
+        node.clear_attr();
 
-          SetNodeAttr("GLFWwindow_ptr",
-                      reinterpret_cast<tensorflow::int64>(window), &node);
+        SetNodeAttr("GLFWwindow_ptr",
+                    reinterpret_cast<tensorflow::int64>(window), &node);
 
-          SetNodeAttr<tensorflow::int64>("texture_id",
-                                         input_textures[i]->get_id(), &node);
-
-          const auto input_shape = input_textures[i]->get_resolution();
-          auto shape = (*node.mutable_attr())["shape"].mutable_shape();
-          shape->add_dim()->set_size(input_shape[1]);
-          shape->add_dim()->set_size(input_shape[0]);
-          shape->add_dim()->set_size(3);  // RGB
+        auto texture_ids = (*node.mutable_attr())["texture_ids"].mutable_list();
+        for (const auto& texture : input_textures) {
+          texture_ids->add_i(texture->get_id());
         }
+
+        const auto input_shape = input_textures[0]->get_resolution();
+        auto shape = (*node.mutable_attr())["shape"].mutable_shape();
+        // NCHW
+        shape->add_dim()->set_size(1);
+        shape->add_dim()->set_size(3 * TextureInputOp::NUM_INPUTS);
+        shape->add_dim()->set_size(input_shape[1]);
+        shape->add_dim()->set_size(input_shape[0]);
       }
     }
   }
@@ -159,7 +161,7 @@ tensorflow::Status LoadGraph(
     std::unique_ptr<tensorflow::Session>* session,
     const std::string& graph_file_name,
     const std::vector<std::unique_ptr<fribr::Texture>>& input_textures,
-    const std::vector<std::string>& input_graph_node_names,
+    const std::string& input_graph_node_name,
     const fribr::Texture& output_texture, const std::string& output_node_name,
     const GLFWwindow* window,
     std::unique_ptr<tensorflow::EventsWriter>& logger) {
@@ -171,9 +173,8 @@ tensorflow::Status LoadGraph(
                                         graph_file_name, "'");
   }
 
-  AddGraphInputsAndOutputOps(&graph_def, input_textures,
-                             input_graph_node_names, output_texture,
-                             output_node_name, window);
+  AddGraphInputsAndOutputOps(&graph_def, input_textures, input_graph_node_name,
+                             output_texture, output_node_name, window);
 
   if (logger != nullptr) {
     auto graph_def_str = new std::string;
@@ -287,7 +288,7 @@ int main(int argc, char** argv) {
   const size_t height = 720;
 
   const std::string log_folder = data_folder + "logs/";
-  const bool logging_enabled = true;
+  const bool logging_enabled = false;
 
   const std::vector<tensorflow::Flag> flag_list;
 
@@ -315,18 +316,17 @@ int main(int argc, char** argv) {
   // Set up input and output frame buffers.
   //
 
-  // TODO (True): make these command-line inputs
-  const std::vector<std::string> input_graph_node_names = {
-      "input1", "input2", "input3", "input4", "input5"};
+  // TODO (True): make this a command-line input
+  const std::string input_graph_node_name = "input1";
 
-  const std::string output_node_name = "model/transpose_1";
+  const std::string output_node_name = "model/mul_12";
 
   const auto resolution = (Eigen::Vector2i() << width, height).finished();
 
   fribr::Texture::Descriptor color_descriptor(GL_CLAMP_TO_EDGE, GL_NEAREST, 0,
                                               fribr::TextureFormat::RGBA8);
   std::vector<std::unique_ptr<fribr::Texture>> input_textures;
-  for (size_t i = 0; i < input_graph_node_names.size(); ++i) {
+  for (size_t i = 0; i < TextureInputOp::NUM_INPUTS; ++i) {
     input_textures.emplace_back(
         new fribr::Texture(resolution, color_descriptor));
   }
@@ -348,9 +348,9 @@ int main(int argc, char** argv) {
 
   std::unique_ptr<tensorflow::Session> session;
   {
-    const auto load_graph_status = LoadGraph(
-        &session, graph_path, input_textures, input_graph_node_names,
-        output_texture, output_node_name, window, logger);
+    const auto load_graph_status =
+        LoadGraph(&session, graph_path, input_textures, input_graph_node_name,
+                  output_texture, output_node_name, window, logger);
     if (!load_graph_status.ok()) {
       LOG(ERROR) << load_graph_status;
       return -1;

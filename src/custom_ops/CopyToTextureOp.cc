@@ -41,8 +41,8 @@ CopyToTextureOp::~CopyToTextureOp() {
 
 void CopyToTextureOp::Compute(tensorflow::OpKernelContext* context) {
   const tensorflow::Tensor& input_tensor = context->input(0);
-  const size_t height = input_tensor.dim_size(1);
-  const size_t width = input_tensor.dim_size(2);
+  const size_t height = input_tensor.dim_size(2);
+  const size_t width = input_tensor.dim_size(3);
 
   //    const auto stream =
   //        static_cast<stream_executor::cuda::CUDAStream*>(

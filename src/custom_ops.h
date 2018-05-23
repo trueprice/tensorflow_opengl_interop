@@ -22,7 +22,7 @@ REGISTER_KERNEL_BUILDER(Name("CudaBilinearUpsample")
 
 REGISTER_OP("TextureInput")
     .Attr("GLFWwindow_ptr: int")
-    .Attr("texture_id: int")
+    .Attr("texture_ids: list(int)")
     .Attr("shape: shape")
     .Output("out_tensor: float");
 
