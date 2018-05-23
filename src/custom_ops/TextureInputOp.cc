@@ -81,7 +81,8 @@ void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
     texDesc.addressMode[1] = cudaAddressModeBorder;
     texDesc.addressMode[2] = cudaAddressModeBorder;
     texDesc.filterMode = cudaFilterModePoint;
-    texDesc.readMode = cudaReadModeNormalizedFloat;  // converts to [0., 1.]
+    //texDesc.readMode = cudaReadModeNormalizedFloat;  // converts to [0., 1.]
+    texDesc.readMode = cudaReadModeElementType;
 
     cudaCreateTextureObject(&in_textures[i], &res_desc, &texDesc, nullptr);
   }

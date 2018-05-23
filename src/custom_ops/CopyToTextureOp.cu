@@ -1,9 +1,5 @@
 #include "CopyToTextureOp.h"
 
-__device__ unsigned char rgb_float_to_uchar(float x) {
-  return __saturatef(x) * 255.f;
-}
-
 __global__ void CopyToTextureOp_CopyToTexture_kernel(const size_t width,
                                                      const size_t height,
                                                      const float* rgb,
@@ -17,10 +13,10 @@ __global__ void CopyToTextureOp_CopyToTexture_kernel(const size_t width,
 
     for (; x < width; x += blockDim.x * gridDim.x) {
       const size_t offset = (c * height + y) * width + x;
-      const unsigned char value =
-          (c < 3) ? rgb_float_to_uchar(rgb[offset]) : 255;
+      const float value = (c < 3) ? rgb[offset] : 1.f;
 
-      surf2Dwrite(value, rgba, sizeof(uchar4) * x + c, y, cudaBoundaryModeZero);
+      surf2Dwrite(value, rgba, sizeof(float4) * x + sizeof(float) * c, y,
+                  cudaBoundaryModeZero);
     }
   }
 }

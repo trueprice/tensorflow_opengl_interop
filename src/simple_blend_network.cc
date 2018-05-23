@@ -237,19 +237,21 @@ void UploadImageToTexture(const cv::Mat& image,
   // use fast 4-byte alignment always
   glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
-  // set length of one complete row in data (doesn't need to equal image.cols)
-  glPixelStorei(GL_UNPACK_ROW_LENGTH, image.step / image.elemSize());
-
-  cv::Mat copy(image.rows, image.cols, CV_8UC4);
+  cv::Mat copy(image.rows, image.cols, CV_32FC4);
   for (int y = 0; y < image.rows; ++y) {
     for (int x = 0; x < image.cols; ++x) {
+      const float INV_255 = 1.f / 255.f;
       cv::Vec3b c = image.at<cv::Vec3b>(y, x);
-      copy.at<cv::Vec4b>(y, x) = cv::Vec4b(c[2], c[1], c[0], 255);
+      copy.at<cv::Vec4f>(y, x) =
+          cv::Vec4f(c[2] * INV_255, c[1] * INV_255, c[0] * INV_255, 1.f);
     }
   }
 
+  // set length of one complete row in data (doesn't need to equal image.cols)
+  glPixelStorei(GL_UNPACK_ROW_LENGTH, copy.step / copy.elemSize());
+
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, copy.cols, copy.rows, GL_BGRA,
-                  GL_UNSIGNED_BYTE, copy.data);
+                  GL_FLOAT, copy.data);
 
   glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 
@@ -262,13 +264,17 @@ cv::Mat DownloadTexture(fribr::Texture* texture) {
   GLuint texture_id = texture->get_id();
 
   const auto resolution = texture->get_resolution();
-  cv::Mat image(resolution.y(), resolution.x(), CV_8UC4);
+  cv::Mat image(resolution.y(), resolution.x(), CV_32FC4);
 
   glBindTexture(GL_TEXTURE_2D, texture_id);
-  glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, image.data);
+  glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, image.data);
   glBindTexture(GL_TEXTURE_2D, 0);
 
-  return image;
+  cv::Mat image_uint8;
+  image *= 255.f;
+  image.convertTo(image_uint8, CV_8UC4);
+
+  return image_uint8;
 }
 
 //------------------------------------------------------------------------------
@@ -324,7 +330,7 @@ int main(int argc, char** argv) {
   const auto resolution = (Eigen::Vector2i() << width, height).finished();
 
   fribr::Texture::Descriptor color_descriptor(GL_CLAMP_TO_EDGE, GL_NEAREST, 0,
-                                              fribr::TextureFormat::RGBA8);
+                                              fribr::TextureFormat::RGBA32F);
   std::vector<std::unique_ptr<fribr::Texture>> input_textures;
   for (size_t i = 0; i < TextureInputOp::NUM_INPUTS; ++i) {
     input_textures.emplace_back(
