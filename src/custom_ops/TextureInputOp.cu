@@ -1,8 +1,8 @@
 #include "TextureInputOp.h"
 
-#include <array>
+#include <vector>
 
-__constant__ cudaTextureObject_t c_RGBAInputs[TextureInputOp::NUM_INPUTS];
+__constant__ cudaTextureObject_t c_RGBAInputs[TextureInputOp::MAX_NUM_INPUTS];
 
 __global__ void TextureInputOp_CopyToTexture_kernel(const size_t width,
                                                     const size_t height,
@@ -27,16 +27,14 @@ __global__ void TextureInputOp_CopyToTexture_kernel(const size_t width,
 
 void TextureInputOp::CopyToTensor(
     const size_t width, const size_t height,
-    const std::array<cudaTextureObject_t, TextureInputOp::NUM_INPUTS>&
-        in_textures,
-    float* out_tensor) {
+    const std::vector<cudaTextureObject_t>& in_textures, float* out_tensor) {
   const dim3 block_dim(256, 1, 1);
   const dim3 grid_dim((width + block_dim.x - 1) / block_dim.x,
                       (height + block_dim.y - 1) / block_dim.y,
-                      TextureInputOp::NUM_INPUTS);
+                      in_textures.size());
 
   cudaMemcpyToSymbol(c_RGBAInputs, in_textures.data(),
-                     NUM_INPUTS * sizeof(cudaTextureObject_t));
+                     in_textures.size() * sizeof(cudaTextureObject_t));
 
   // TODO (True): stream
   TextureInputOp_CopyToTexture_kernel

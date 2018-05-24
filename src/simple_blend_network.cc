@@ -17,6 +17,7 @@
 #include <Eigen/Core>
 
 #include <cuda_gl_interop.h>
+#include <cuda_profiler_api.h>
 
 #include "tensorflow/cc/ops/standard_ops.h"
 #include "tensorflow/core/framework/attr_value_util.h"
@@ -105,35 +106,27 @@ void AddGraphInputsAndOutputOps(
         auto shape = (*node.mutable_attr())["shape"].mutable_shape();
         // NCHW
         shape->add_dim()->set_size(1);
-        shape->add_dim()->set_size(3 * TextureInputOp::NUM_INPUTS);
+        shape->add_dim()->set_size(3 * input_textures.size());
         shape->add_dim()->set_size(input_shape[1]);
         shape->add_dim()->set_size(input_shape[0]);
       }
     }
   }
 
-  /*
-  // Replace ResizeBilinear ops with our custom op. In the protobuf, we expect
-  // that the tf.image.resize_bilinear op has been replace by a NHWC->NCHW
-  // transpose, followed by tf.tile(x, [1, 1, 2, 2], name="ResizeBilinear"),
-  // followed by a NCHW->NHWC transpose.
+  // Replace upsampling ops with our custom op. In your protobuf, you can do
+  // this using tf.tile(x, [1, 1, 2, 2], name="model/UpsampleNN")
   {
     for (tensorflow::NodeDef& node : *graph_def->mutable_node()) {
       // Note that ResizeBilinear also has extra size inputs that we'll
       // ignore.
-      if (StartsWith(node.name(), "model/ResizeBilinear") &&
+      if (StartsWith(node.name(), "model/UpsampleNN") &&
           !EndsWith(node.name(), "multiples")) {
-        const auto pos = node.name().rfind('_');
-        const std::string suffix =
-            (pos != std::string::npos) ? node.name().substr(pos) : "";
-
-        node.set_op("CudaBilinearUpsample");
+        node.set_op("CudaNNUpsample");
         node.mutable_input()->RemoveLast();  // remove input from tf.tile()
         node.clear_attr();
       }
     }
   }
-  */
 
   // TODO (True): potential bug in Protobuf and/or the way this project uses the
   // Protobuf library? Have to force the release of fields before setting them
@@ -325,14 +318,16 @@ int main(int argc, char** argv) {
   // TODO (True): make this a command-line input
   const std::string input_graph_node_name = "input1";
 
-  const std::string output_node_name = "model/mul_12";
+  const std::string output_node_name = "model/mul";
+
+  const size_t num_texture_inputs = 5;
 
   const auto resolution = (Eigen::Vector2i() << width, height).finished();
 
   fribr::Texture::Descriptor color_descriptor(GL_CLAMP_TO_EDGE, GL_NEAREST, 0,
                                               fribr::TextureFormat::RGBA32F);
   std::vector<std::unique_ptr<fribr::Texture>> input_textures;
-  for (size_t i = 0; i < TextureInputOp::NUM_INPUTS; ++i) {
+  for (size_t i = 0; i < num_texture_inputs; ++i) {
     input_textures.emplace_back(
         new fribr::Texture(resolution, color_descriptor));
   }
@@ -376,13 +371,17 @@ int main(int argc, char** argv) {
   tensorflow::Env::Default()->RecursivelyCreateDir(output_folder);
 
   while ((fin >> dummy >> dummy)) {
+    if (output_idx >= 3) {
+      cudaProfilerStart();
+    }
+
     std::string filename;
 
     // extra reference file
     fin >> filename;
 
     glfwMakeContextCurrent(window);
-    for (size_t i = 0; i < 5; ++i) {
+    for (size_t i = 0; i < num_texture_inputs; ++i) {
       fin >> filename;
       UploadImageToTexture(
           cv::imread(tensorflow::io::JoinPath(data_folder, filename)),

@@ -2,6 +2,7 @@
 
 #include "custom_ops/CopyToTextureOp.h"
 #include "custom_ops/CudaBilinearUpsampleOp.h"
+#include "custom_ops/CudaNNUpsampleOp.h"
 #include "custom_ops/TextureInputOp.h"
 
 REGISTER_OP("CopyToTexture")
@@ -19,6 +20,13 @@ REGISTER_OP("CudaBilinearUpsample")
 REGISTER_KERNEL_BUILDER(Name("CudaBilinearUpsample")
                             .Device(tensorflow::DEVICE_GPU),
                         CudaBilinearUpsampleOp);
+
+REGISTER_OP("CudaNNUpsample")
+    .Input("in_tensor: float")
+    .Output("out_tensor: float");
+
+REGISTER_KERNEL_BUILDER(Name("CudaNNUpsample").Device(tensorflow::DEVICE_GPU),
+                        CudaNNUpsampleOp);
 
 REGISTER_OP("TextureInput")
     .Attr("GLFWwindow_ptr: int")

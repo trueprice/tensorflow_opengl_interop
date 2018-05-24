@@ -25,15 +25,16 @@ TextureInputOp::TextureInputOp(tensorflow::OpKernelConstruction* context)
 
   context->GetAttr(
       "texture_ids",
-      reinterpret_cast<std::vector<tensorflow::int32>*>(&texture_ids_));
+      reinterpret_cast<std::vector<tensorflow::int32>*>(&textureIds_));
 
-  CHECK_EQ(texture_ids_.size(), NUM_INPUTS);
+  numInputs_ = textureIds_.size();
 
   context->GetAttr("shape", &shape_);
 
   glfwMakeContextCurrent(window_);
-  for (size_t i = 0; i < NUM_INPUTS; ++i) {
-    cudaGraphicsGLRegisterImage(&cudaTextures_[i], texture_ids_[i],
+  cudaTextures_.resize(numInputs_);
+  for (size_t i = 0; i < numInputs_; ++i) {
+    cudaGraphicsGLRegisterImage(&cudaTextures_[i], textureIds_[i],
                                 GL_TEXTURE_2D, cudaGraphicsMapFlagsReadOnly);
   }
   glfwMakeContextCurrent(0);
@@ -41,7 +42,7 @@ TextureInputOp::TextureInputOp(tensorflow::OpKernelConstruction* context)
 
 TextureInputOp::~TextureInputOp() {
   glfwMakeContextCurrent(window_);
-  for (size_t i = 0; i < NUM_INPUTS; ++i) {
+  for (size_t i = 0; i < numInputs_; ++i) {
     cudaGraphicsUnregisterResource(cudaTextures_[i]);
   }
   glfwMakeContextCurrent(0);
@@ -61,11 +62,11 @@ void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
     glfwMakeContextCurrent(window_);
   }
 
-  cudaGraphicsMapResources(NUM_INPUTS, cudaTextures_.data());  //, stream);
+  cudaGraphicsMapResources(numInputs_, cudaTextures_.data());  //, stream);
 
-  std::array<cudaTextureObject_t, NUM_INPUTS> in_textures;
+  std::vector<cudaTextureObject_t> in_textures(numInputs_);
 
-  for (size_t i = 0; i < NUM_INPUTS; ++i) {
+  for (size_t i = 0; i < numInputs_; ++i) {
     cudaArray_t texture_array;
     cudaGraphicsSubResourceGetMappedArray(&texture_array, cudaTextures_[i], 0,
                                           0);
@@ -94,9 +95,9 @@ void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
                output_tensor->flat<float>().data());
 
 
-  for (size_t i = 0; i < NUM_INPUTS; ++i) {
+  for (size_t i = 0; i < numInputs_; ++i) {
     cudaDestroyTextureObject(in_textures[i]);
   }
 
-  cudaGraphicsUnmapResources(NUM_INPUTS, cudaTextures_.data());  //, stream);
+  cudaGraphicsUnmapResources(numInputs_, cudaTextures_.data());  //, stream);
 }

@@ -1,7 +1,6 @@
 #ifndef TEXTURE_INPUTS_OP_H_
 #define TEXTURE_INPUTS_OP_H_
 
-#include <array>
 #include <vector>
 
 #include <GL/glew.h>
@@ -14,7 +13,7 @@
 
 class TextureInputOp : public tensorflow::OpKernel {
  public:
-  static const size_t NUM_INPUTS = 5;
+  static const size_t MAX_NUM_INPUTS = 20;
 
   explicit TextureInputOp(tensorflow::OpKernelConstruction* context);
 
@@ -24,14 +23,15 @@ class TextureInputOp : public tensorflow::OpKernel {
 
   static void CopyToTensor(
       const size_t width, const size_t height,
-      const std::array<cudaTextureObject_t, NUM_INPUTS>& in_textures,
+      const std::vector<cudaTextureObject_t>& in_textures,
       float* out_tensor);
 
  private:
-  std::vector<GLuint> texture_ids_;
-  std::array<cudaGraphicsResource_t, NUM_INPUTS> cudaTextures_;
+  std::vector<GLuint> textureIds_;
+  std::vector<cudaGraphicsResource_t> cudaTextures_;
   GLFWwindow* window_;
   tensorflow::TensorShape shape_;
+  size_t numInputs_;
 };
 
 #endif  // TEXTURE_INPUTS_OP_H_
