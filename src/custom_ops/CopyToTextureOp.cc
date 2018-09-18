@@ -51,7 +51,9 @@ void CopyToTextureOp::Compute(tensorflow::OpKernelContext* context) {
   //    LOG(INFO) << "::" << stream;
 
   cudaDeviceSynchronize();
-
+  if(glfwGetCurrentContext() != window_) {
+    glfwMakeContextCurrent(window_);
+  }
   cudaGraphicsMapResources(1, &cudaTexture_);  //, stream);
 
   cudaArray_t texture_array;

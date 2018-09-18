@@ -100,4 +100,5 @@ void TextureInputOp::Compute(tensorflow::OpKernelContext* context) {
   }
 
   cudaGraphicsUnmapResources(numInputs_, cudaTextures_.data());  //, stream);
+  glfwMakeContextCurrent(0);
 }
