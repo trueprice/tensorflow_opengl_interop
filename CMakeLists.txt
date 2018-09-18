@@ -21,15 +21,15 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules")
 IF (WIN32)
   
   set(GLEW_FOUND 1)
-  set(GLEW_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ext/glew-1.10.0/include" CACHE PATH "Path to GLEW")
-  set(GLEW_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/ext/glew-1.10.0/include" CACHE PATH "Path to GLEW")
-  set(GLEW_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/ext/glew-1.10.0/lib64/glew32.lib" CACHE PATH "Path to GLEW")
-  set(GLEW_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/ext/glew-1.10.0/lib64/glew32.lib" CACHE PATH "Path to GLEW")  
+  set(GLEW_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/glew-1.10.0/include" CACHE PATH "Path to GLEW")
+  set(GLEW_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/glew-1.10.0/include" CACHE PATH "Path to GLEW")
+  set(GLEW_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/glew-1.10.0/lib64/glew32.lib" CACHE PATH "Path to GLEW")
+  set(GLEW_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/glew-1.10.0/lib64/glew32.lib" CACHE PATH "Path to GLEW")  
 
   set(GLFW3_FOUND 1)
-  set(GLFW3_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ext/GLFW/include" CACHE PATH "Path to GLFW3") 
-  set(GLFW3_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/ext/GLFW/lib/glfw3.lib" CACHE PATH "Path to GLFW3") 
-  set(GLFW3_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/ext/GLFW/include" CACHE PATH "Path to GLFW3")
+  set(GLFW3_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/GLFW/include" CACHE PATH "Path to GLFW3") 
+  set(GLFW3_LIBRARIES "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/GLFW/lib/glfw3.lib" CACHE PATH "Path to GLFW3") 
+  set(GLFW3_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/extlibs/GLFW/include" CACHE PATH "Path to GLFW3")
 
   include_directories("${CMAKE_SOURCE_DIR}/extlibs/tfinterop/eigen3/include/eigen3")
 
